@@ -1,21 +1,26 @@
 #define SDL_MAIN_USE_CALLBACKS 1
-#define RES_X 800
-#define RES_Y 800
-#define SCALE_X 8.0f
-#define SCALE_Y 8.0f
-#define FPS 144
-#define MAX_SIZE 10
+#define RES_X 1200 // Screen width in pixels
+#define RES_Y 960  // Screen height in pixels
 
-#define BOX_LEFT -50.0
-#define BOX_RIGHT 50.0
-#define BOX_TOP 50.0
-#define BOX_BOTTOM -50.0
+#define BOX_LEFT -200.0   // Physics world left boundary
+#define BOX_RIGHT 200.0   // Physics world right boundary
+#define BOX_TOP 200.0     // Physics world top boundary
+#define BOX_BOTTOM -200.0 // Physics world bottom boundary
 
+// Calculate scaling factors
+#define SCALE_X                                                                \
+  (RES_X / (BOX_RIGHT - BOX_LEFT)) // Scale X: pixels per physics unit
+#define SCALE_Y                                                                \
+  (RES_Y / (BOX_TOP - BOX_BOTTOM)) // Scale Y: pixels per physics unit
+
+#define FPS 144     // Target frames per second
+#define MAX_SIZE 10 // Maximum number of particles
+#define MASS_SCALE 4
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_render.h>
-#include <stdio.h>
 #include <math.h>
+#include <stdio.h>
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
@@ -28,25 +33,16 @@ struct WorldBox {
 };
 
 // particle dynamics
-typedef struct position {
-  double x_pos;
-  double y_pos;
-} pos_t;
-
-typedef struct velocity {
-  double x_vel;
-  double y_vel;
-} vel_t;
-
-typedef struct acceleration {
-  double x_acc;
-  double y_acc;
-} acc_t;
+typedef struct {
+  double x;
+  double y;
+} vec2d_t;
 
 typedef struct particle {
-  pos_t position;
-  vel_t velocity;
-  acc_t acceleration;
+  vec2d_t position;
+  vec2d_t velocity;
+  vec2d_t acceleration;
+  float mass;
   float radius;
 } part_t;
 
@@ -58,81 +54,113 @@ typedef struct particles {
 void state_update(part_t *particle);
 
 void update_position(part_t *particle) {
-  particle->position.x_pos += (1.0f / FPS) * particle->velocity.x_vel;
-  particle->position.y_pos += (1.0f / FPS) * particle->velocity.y_vel;
+  particle->position.x += (1.0f / FPS) * particle->velocity.x;
+  particle->position.y += (1.0f / FPS) * particle->velocity.y;
 }
 void update_velocity(part_t *particle) {
-  particle->velocity.x_vel += (1.0f / FPS) * particle->acceleration.x_acc;
-  particle->velocity.y_vel += (1.0f / FPS) * particle->acceleration.y_acc;
+  particle->velocity.x += (1.0f / FPS) * particle->acceleration.x;
+  particle->velocity.y += (1.0f / FPS) * particle->acceleration.y;
 }
 
 // here is the main driving force (hehehe) of the dynamics, we could have some
 // particle whose accelariton depends of the time.
 void update_acc(part_t *particle) {
-  particle->acceleration.x_acc = 0;
-  particle->acceleration.y_acc = -10 * particle->radius;
+  particle->acceleration.x = 0;
+  particle->acceleration.y = -10 * particle->mass;
 }
 
-void init_particle(parts_t *particles, part_t *particle, double x_pos,
-                   double y_pos, double x_vel, double y_vel, double radius) {
-  particle->position.x_pos = x_pos;
-  particle->position.y_pos = y_pos;
-  particle->velocity.x_vel = x_vel;
-  particle->velocity.y_vel = y_vel;
-  particle->radius = radius;
+void init_particle(parts_t *particles, part_t *particle, double x0, double y0,
+                   double vx0, double vy0, double mass) {
+  particle->position.x = x0;
+  particle->position.y = y0;
+  particle->velocity.x = vx0;
+  particle->velocity.y = vy0;
+  particle->mass = mass;
+  particle->radius = mass * MASS_SCALE;
 
   particles->particles[particles->num_particles] = particle;
   particles->num_particles += 1;
 }
 void check_box_collision(part_t *particle) {
   // Current particle position and radius
-  double x = particle->position.x_pos;
-  double y = particle->position.y_pos;
+  double x = particle->position.x;
+  double y = particle->position.y;
   double radius = particle->radius;
 
   // Check left boundary
   if (x - radius < BOX_LEFT) {
-    particle->position.x_pos = BOX_LEFT + radius; // Clamp position
-    particle->velocity.x_vel *= -0.8;             // Reverse X velocity
+    particle->position.x = BOX_LEFT + radius; // Clamp position
+    particle->velocity.x *= -0.8;             // Reverse X velocity
   }
 
   // Check right boundary
   if (x + radius > BOX_RIGHT) {
-    particle->position.x_pos = BOX_RIGHT - radius; // Clamp position
-    particle->velocity.x_vel *= -0.8;              // Reverse X velocity
+    particle->position.x = BOX_RIGHT - radius; // Clamp position
+    particle->velocity.x *= -0.8;              // Reverse X velocity
   }
 
   // Check top boundary
   if (y + radius > BOX_TOP) {
-    particle->position.y_pos = BOX_TOP - radius; // Clamp position
-    particle->velocity.y_vel *= -0.8;            // Reverse Y velocity
+    particle->position.y = BOX_TOP - radius; // Clamp position
+    particle->velocity.y *= -0.8;            // Reverse Y velocity
   }
 
   // Check bottom boundary
   if (y - radius < BOX_BOTTOM) {
-    particle->position.y_pos = BOX_BOTTOM + radius; // Clamp position
-    particle->velocity.y_vel *= -0.8;               // Reverse Y velocity
+    particle->position.y = BOX_BOTTOM + radius; // Clamp position
+    particle->velocity.y *= -0.8;               // Reverse Y velocity
   }
 }
 
-void check_particle_collision(part_t *part1, part_t *part2) {
-  pos_t pos1 = part1->position;
-  pos_t pos2 = part2->position;
-  
-  float center_dist = (pos1.x_pos - pos2.x_pos) *
-                          (pos1.x_pos - pos2.x_pos) +
-                      (pos1.y_pos - pos2.y_pos) *
-                          (pos1.y_pos - pos2.y_pos);
+double inner_product(vec2d_t v1, vec2d_t v2) {
+  return v1.x * v2.x + v1.y * v2.y;
+}
+void check_particle_collision(part_t *part1, part_t *part2, double e) {
+  vec2d_t pos1 = part1->position;
+  vec2d_t vel1 = part1->velocity;
+  double r1 = part1->radius;
+  double m1 = part1->mass;
 
-  double nx = (pos1.x_pos - pos2.x_pos)/sqrt(center_dist);
-  double ny = (pos1.x_pos - pos2.y_pos)/sqrt(center_dist);
+  vec2d_t pos2 = part2->position;
+  vec2d_t vel2 = part2->velocity;
+  double r2 = part2->radius;
+  double m2 = part2->mass;
 
+  float center_dist = (pos1.x - pos2.x) * (pos1.x - pos2.x) +
+                      (pos1.y - pos2.y) * (pos1.y - pos2.y);
+
+  // line that passes through the centers
+  double nx = (pos1.x - pos2.x) / sqrt(center_dist);
+  double ny = (pos1.y - pos2.y) / sqrt(center_dist);
 
   double tx = -ny;
   double ty = nx;
 
-  if (center_dist <
-      (part1->radius + part2->radius) * (part1->radius + part2->radius)) 
+  vec2d_t n = {nx, ny};
+  vec2d_t t = {tx, ty};
+
+  double p1n = inner_product(n, vel1) * n.x;
+  double p1t = inner_product(t, vel1) * t.y;
+
+  double p2n = inner_product(n, vel2) * n.x;
+  double p2t = inner_product(t, vel2) * t.y;
+
+  if (center_dist < pow(r1 + r2, 2)) {
+    double v1n = (m2 * p2n * (1 + e) + p1n * (m1 - e * m2)) / (m1 + m2);
+    double v2n = (m1 * p1n * (1 + e) + p2n * (m2 - e * m1)) / (m1 + m2);
+    part1->velocity.x = v1n * nx + p1t * t.x;
+    part2->velocity.x = v2n * nx + p2t * t.x;
+
+    part1->velocity.y = v1n * ny + p1t * t.y;
+    part2->velocity.y = v2n * ny + p2t * t.y;
+    //
+    // Adjust positions to prevent overlap
+    double overlap = (r1 + r2) - sqrt(center_dist);
+    part1->position.x += overlap * n.x / 2;
+    part1->position.y += overlap * n.y / 2;
+    part2->position.x -= overlap * n.x / 2;
+    part2->position.y -= overlap * n.y / 2;
+  }
 }
 
 void update_all_particles(parts_t particles) {
@@ -142,7 +170,8 @@ void update_all_particles(parts_t particles) {
   }
   for (int i = 0; i < num_particles; i++) {
     for (int j = i + 1; j < num_particles; j++) {
-      check_particle_collision(particles.particles[i], particles.particles[j]);
+      check_particle_collision(particles.particles[i], particles.particles[j],
+                               0.8);
     }
   }
 }
@@ -163,8 +192,8 @@ typedef struct render_pos {
 
 rpos_t coordinate_converter(part_t *particle) {
   rpos_t world_c;
-  world_c.x = (float)(SCALE_X * particle->position.x_pos) + RES_X / 2.0f;
-  world_c.y = (float)(-SCALE_Y * particle->position.y_pos) + RES_Y / 2.0f;
+  world_c.x = (float)(SCALE_X * particle->position.x) + RES_X / 2.0f;
+  world_c.y = (float)(-SCALE_Y * particle->position.y) + RES_Y / 2.0f;
   // I think it should be the min of the scales
   world_c.r = SCALE_X * particle->radius;
   return world_c;
@@ -217,14 +246,19 @@ void midPointCircleFill(SDL_Renderer *renderer, int x_centre, int y_centre,
 parts_t particles;
 part_t part1;
 part_t part2;
+part_t part3;
+part_t part4;
+part_t part5;
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
   SDL_SetAppMetadata("Physics Simulation", "1.0", "com.example.physics-sim");
   particles.num_particles = 0;
 
   init_particle(&particles, &part1, 100, 75, 20, 10.0, 5);
-  init_particle(&particles, &part2, 10, 75, 20, 2, 1);
-
+  init_particle(&particles, &part2, 20, 75, 5, 30, 3);
+  init_particle(&particles, &part3, 30, 20, 15, -20, 4);
+  init_particle(&particles, &part4, 40, 40, 50, 15, 2);
+  init_particle(&particles, &part5, 50, 10, 25, -25, 3);
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
     SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
     return SDL_APP_FAILURE;
