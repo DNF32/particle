@@ -15,6 +15,7 @@
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_render.h>
 #include <stdio.h>
+#include <math.h>
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
@@ -115,54 +116,23 @@ void check_box_collision(part_t *particle) {
 }
 
 void check_particle_collision(part_t *part1, part_t *part2) {
-  float center_dist = (part1->position.x_pos - part2->position.x_pos) *
-                          (part1->position.x_pos - part2->position.x_pos) +
-                      (part1->position.y_pos - part2->position.y_pos) *
-                          (part1->position.y_pos - part2->position.y_pos);
+  pos_t pos1 = part1->position;
+  pos_t pos2 = part2->position;
+  
+  float center_dist = (pos1.x_pos - pos2.x_pos) *
+                          (pos1.x_pos - pos2.x_pos) +
+                      (pos1.y_pos - pos2.y_pos) *
+                          (pos1.y_pos - pos2.y_pos);
+
+  double nx = (pos1.x_pos - pos2.x_pos)/sqrt(center_dist);
+  double ny = (pos1.x_pos - pos2.y_pos)/sqrt(center_dist);
+
+
+  double tx = -ny;
+  double ty = nx;
 
   if (center_dist <
-      (part1->radius + part2->radius) * (part1->radius + part2->radius)) {
-
-    pos_t pos1 = part1->position;
-    vel_t vel1 = part1->velocity;
-    float m1 = part1->radius;
-
-    pos_t pos2 = part2->position;
-    vel_t vel2 = part2->velocity;
-    float m2 = part2->radius;
-
-    double dif_velx = vel1.x_vel - vel2.x_vel;
-    double dif_vely = vel1.x_vel - vel2.x_vel;
-
-    double dif_posx = pos1.x_pos - pos2.x_pos;
-    double dif_posy = pos1.x_pos - pos2.x_pos;
-
-    double inner_prod = dif_velx * dif_posx + dif_vely * dif_posy;  
-
-    part1->velocity.x_vel =
-        vel1.x_vel -
-        (2 * m2 / (m1 + m2)) *
-            inner_prod *
-            (pos1.x_pos - pos2.x_pos) / (center_dist);
-
-    part1->velocity.y_vel =
-        vel1.y_vel -
-        (2 * m2 / (m1 + m2)) *
-            inner_prod *
-            (pos1.y_pos - pos2.y_pos) / (center_dist);
-
-    part2->velocity.x_vel =
-        vel2.x_vel -
-        (2 * m1 / (m1 + m2)) *
-            inner_prod *
-            (pos2.x_pos - pos1.x_pos) / (center_dist);
-
-    part2->velocity.y_vel =
-        vel2.y_vel -
-        (2 * m1 / (m1 + m2)) *
-            inner_prod *
-            (pos2.y_pos - pos1.y_pos) / (center_dist);
-  }
+      (part1->radius + part2->radius) * (part1->radius + part2->radius)) 
 }
 
 void update_all_particles(parts_t particles) {
